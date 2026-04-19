@@ -10,9 +10,14 @@ else
     exit 1
 fi
 
+if [ ! -x ".venv/bin/python" ]; then
+    echo "Error: .venv/bin/python not found or not executable. Recreate the venv."
+    exit 1
+fi
+
 # 2. Set PYTHONPATH to include data_engine and challenges
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 # 3. Launch Streamlit Dashboard
 echo "Starting Streamlit Dashboard on port 8501..."
-python -m streamlit run ui/dashboard.py --server.port 8501 --server.headless true --server.address 0.0.0.0
+.venv/bin/python -m streamlit run ui/dashboard.py --server.port 8501 --server.headless true --server.address 0.0.0.0 --server.fileWatcherType none

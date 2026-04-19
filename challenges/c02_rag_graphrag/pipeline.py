@@ -18,6 +18,14 @@ from challenges.c02_rag_graphrag.graph_retriever import GraphRetriever
 
 LANGFUSE_BASE_URL = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com").rstrip("/")
 
+def _clip_text(text: str, max_chars: int) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    if len(t) <= max_chars:
+        return t
+    return t[:max_chars] + "..."
+
 
 def _build_fallback_trace_url(trace_id: str) -> str:
     if not trace_id:
@@ -78,13 +86,73 @@ class DualPipeline:
             )
             return response.choices[0].message.content
         except Exception as e:
+            # IMPORTANT: Do not leak full prompts / large context into the UI.
+            # The system should degrade gracefully while keeping outputs readable.
             return (
-                "LLM backend unavailable (could not reach http://localhost:1234).\n\n"
-                f"Fallback output generated without LLM.\n"
-                f"Error: {type(e).__name__}: {e}\n\n"
-                "Context excerpt:\n"
-                + prompt[:2000]
+                "LLM backend unavailable (could not reach http://localhost:1234).\n"
+                "No LLM synthesis was performed for this run.\n"
+                f"Error: {type(e).__name__}: {e}\n"
             )
+
+    def _fallback_graphrag_summary(self, query: str, nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> str:
+        """
+        Deterministic GraphRAG fallback when the LLM server is down.
+        Goal: show that graph construction + traversal worked, without dumping the prompt.
+        """
+        def _snip(t: str, n: int = 180) -> str:
+            t = (t or "").replace("\n", " ").strip()
+            return t[:n] + ("..." if len(t) > n else "")
+
+        # Simple keyword probe to highlight multi-hop relevance.
+        q_terms = [w.lower() for w in query.replace(",", " ").replace(".", " ").split() if len(w) > 4]
+
+        node_lines: List[str] = []
+        for i, n in enumerate(nodes[:8]):
+            md = n.get("metadata", {}) or {}
+            src = md.get("source", "unknown")
+            idx = md.get("chunk_index", "NA")
+            text = n.get("text", "")
+            hits = [t for t in q_terms[:12] if t in text.lower()]
+            node_lines.append(
+                f"- Node {i+1} (source={src}, chunk_index={idx}, term_hits={hits[:6]}): {_snip(text)}"
+            )
+
+        edge_lines: List[str] = []
+        for e in sorted(edges, key=lambda x: x.get("weight", 0.0), reverse=True)[:12]:
+            edge_lines.append(
+                f"- {e.get('source')} -> {e.get('target')} (type={e.get('type')}, weight={float(e.get('weight', 0.0)):.2f})"
+            )
+
+        return (
+            "GraphRAG fallback (LLM unavailable): graph retrieval succeeded, but synthesis was skipped.\n\n"
+            f"Query: {query}\n"
+            f"Retrieved nodes: {len(nodes)}\n"
+            f"Retrieved edges: {len(edges)}\n\n"
+            "Top evidence nodes:\n"
+            + ("\n".join(node_lines) if node_lines else "- (none)\n")
+            + "\n\nTop subgraph edges:\n"
+            + ("\n".join(edge_lines) if edge_lines else "- (none)\n")
+            + "\n\nTo enable full GraphRAG answers and Langfuse traces, start your local OpenAI-compatible LLM server at http://localhost:1234/v1."
+        )
+
+    def _looks_like_prompt_echo(self, text: str) -> bool:
+        """
+        Some local models may echo the provided context/prompt instead of answering.
+        Detect that behavior and fall back to a compact, deterministic summary.
+        """
+        if not text:
+            return False
+        t = text.lower()
+        # Markers that are extremely unlikely to appear in a correct final answer.
+        markers = [
+            "graph context (nodes and explicit relationships)",
+            "\nnodes:\n",
+            "\nedges:\n",
+            "you are answering a legal question using an explicit graph",
+        ]
+        if any(m in t for m in markers) and len(text) > 400:
+            return True
+        return False
 
     def _ensure_graph_ready(self):
         """
@@ -108,8 +176,7 @@ class DualPipeline:
         start_time = time.time()
         trace_id = uuid.uuid4().hex
         
-        # Concatenate all chunks
-        context = "\n\n".join(chunks)
+        context = "\n\n".join(_clip_text(c, 900) for c in chunks[:6])
         
         prompt = f"""
         Document Context:
@@ -167,7 +234,7 @@ class DualPipeline:
         cluster_summaries = []
         for i in range(n_clusters):
             cluster_indices = np.where(labels == i)[0]
-            cluster_text = "\n\n".join([chunks[idx] for idx in cluster_indices])
+            cluster_text = "\n\n".join(_clip_text(chunks[idx], 900) for idx in cluster_indices[:6])
             
             c_prompt = f"Summarize the core theme of this specific legal cluster:\n\n{cluster_text}\n\nNo icons."
 
@@ -245,20 +312,23 @@ class DualPipeline:
         nodes = retrieval["nodes"]
         edges = retrieval["edges"]
 
-        # Create stable, human-readable node labels for the prompt.
-        label_map: Dict[str, str] = {n["id"]: f"Node {i+1}" for i, n in enumerate(nodes)}
+        prompt_nodes = nodes[:18]
+        prompt_node_ids = {n["id"] for n in prompt_nodes}
+        prompt_edges = [e for e in edges if e["source"] in prompt_node_ids and e["target"] in prompt_node_ids]
+
+        label_map: Dict[str, str] = {n["id"]: f"Node {i+1}" for i, n in enumerate(prompt_nodes)}
 
         node_lines: List[str] = []
-        for n in nodes:
+        for n in prompt_nodes:
             md = n.get("metadata", {}) or {}
             src = md.get("source", "unknown_source")
             idx = md.get("chunk_index", "NA")
             node_lines.append(
-                f"[{label_map[n['id']]}] source={src} chunk_index={idx}\n{n['text']}"
+                f"[{label_map[n['id']]}] source={src} chunk_index={idx}\n{_clip_text(n['text'], 900)}"
             )
 
         edge_lines: List[str] = []
-        for e in sorted(edges, key=lambda x: x["weight"], reverse=True):
+        for e in sorted(prompt_edges, key=lambda x: x["weight"], reverse=True)[:60]:
             src_lbl = label_map.get(e["source"], e["source"])
             dst_lbl = label_map.get(e["target"], e["target"])
             edge_lines.append(
@@ -268,9 +338,9 @@ class DualPipeline:
         graph_context = (
             "Graph Context (nodes and explicit relationships):\n\n"
             "NODES:\n"
-            + "\n\n".join(node_lines[:25])
+            + "\n\n".join(node_lines)
             + "\n\nEDGES:\n"
-            + "\n".join(edge_lines[:80])
+            + "\n".join(edge_lines)
         )
 
         prompt = f"""
@@ -284,26 +354,45 @@ class DualPipeline:
         1) Identify the key clauses relevant to the question.
         2) Use the EDGES to explain how concepts connect across nodes (multi-hop reasoning).
         3) Provide a concise, structured answer that explicitly references at least 2-3 relationships (e.g., Node X -> Node Y).
+        4) Do NOT repeat the Graph Context verbatim. Only cite node IDs and short quotes (max 20 words per quote).
 
         Output constraints:
         - Plain text only.
         - No icons or emojis.
         """
 
-        summary = self._safe_chat_completion(
-            prompt=prompt,
-            trace_id=trace_id,
-            name="GraphRAG Graph-Based Synthesis",
-        )
+        llm_ok = True
+        llm_echo = False
+        try:
+            summary = client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                trace_id=trace_id,
+                name="GraphRAG Graph-Based Synthesis",
+            ).choices[0].message.content
+
+            if self._looks_like_prompt_echo(summary):
+                llm_echo = True
+                summary = (
+                    "Model output looked like a prompt/context echo; returning a compact GraphRAG summary instead.\n\n"
+                    + self._fallback_graphrag_summary(query, nodes, edges)
+                )
+        except Exception:
+            llm_ok = False
+            summary = self._fallback_graphrag_summary(query, nodes, edges)
         latency = (time.time() - start_time) * 1000
 
-        trace_url = _safe_get_trace_url(trace_id)
+        # Only advertise trace links when an LLM call actually happened (even if it echoed).
+        trace_url = _safe_get_trace_url(trace_id) if llm_ok else ""
         print(f"[OBSERVABILITY] Path C (GraphRAG) Trace ID: {trace_id}")
         print(f"[OBSERVABILITY] Path C (GraphRAG) URL: {trace_url}")
 
         metadata = {
             "latency": latency,
             "path": "graphrag",
+            "llm_ok": llm_ok,
+            "llm_echo": llm_echo,
             **(retrieval.get("metadata") or {}),
         }
 
