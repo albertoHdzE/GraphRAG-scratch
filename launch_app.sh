@@ -15,4 +15,4 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 # 3. Launch Streamlit Dashboard
 echo "Starting Streamlit Dashboard on port 8501..."
-streamlit run ui/dashboard.py --server.port 8501 --server.headless true
+python -m streamlit run ui/dashboard.py --server.port 8501 --server.headless true --server.address 0.0.0.0
