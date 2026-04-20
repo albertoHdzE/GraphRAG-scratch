@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
+import time
 
 from challenges.c02_rag_graphrag.graph_store import GraphStore
 from data_engine.vector_store import VectorStoreManager
@@ -72,15 +73,18 @@ class GraphRetriever:
           - edges: list[edge dict]
           - metadata: retrieval diagnostics + new graph metrics
         """
+        t0 = time.time()
         query_emb = np.asarray(self.vstore.model.encode([query])[0], dtype=np.float32)
         query_emb_n = _normalize(query_emb)
 
         # 1) Seed retrieval (vector DB).
+        t_seed0 = time.time()
         seed_res = self.vstore.collection.query(
             query_embeddings=[query_emb.tolist()],
             n_results=top_k,
             include=["distances"],
         )
+        seed_latency_ms = (time.time() - t_seed0) * 1000.0
         seed_ids = (seed_res.get("ids") or [[]])[0]
         seed_distances = (seed_res.get("distances") or [[]])[0]
         seed_sims = {
@@ -93,6 +97,7 @@ class GraphRetriever:
         # 2) Expand via weighted best-first traversal (bounded by depth and max_nodes).
         # We combine:
         #   score(node) = alpha * sim(query, node) + beta * cumulative_edge_weight
+        t_graph0 = time.time()
         best_score: Dict[str, float] = {}
         best_edge_sum: Dict[str, float] = {}
         parent: Dict[str, Tuple[str, float]] = {}  # child -> (parent_id, edge_weight)
@@ -142,6 +147,7 @@ class GraphRetriever:
                     parent[neigh_id] = (cur, float(w))
                     push(neigh_id, score)
                     visited.add(neigh_id)
+        graph_latency_ms = (time.time() - t_graph0) * 1000.0
 
         # Select top nodes by score (keep seeds even if they scored poorly).
         ranked = sorted(best_score.items(), key=lambda kv: kv[1], reverse=True)
@@ -216,6 +222,9 @@ class GraphRetriever:
             "nodes": nodes,
             "edges": edges,
             "metadata": {
+                "seed_latency_ms": seed_latency_ms,
+                "graph_latency_ms": graph_latency_ms,
+                "retrieval_latency_ms": (time.time() - t0) * 1000.0,
                 "traversal_depth": depth,
                 "graph_nodes_count": len(nodes),
                 "graph_edges_count": len(edges),

@@ -1,0 +1,334 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{ifthen}
+\usepackage{enumitem}
+\usepackage{algorithm2e}
+\usepackage[numbers,sort&compress]{natbib}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\newcommand{\includeorplaceholder}[2]{%
+  \IfFileExists{\detokenize{#1}}{%
+    \includegraphics[width=#2]{\detokenize{#1}}%
+  }{%
+    \fbox{\parbox[c][0.22\textheight][c]{#2}{\centering Missing file:\\\texttt{\detokenize{#1}}}}%
+  }%
+}
+
+\title{GraphRAG From Scratch: An Explicit Graph Baseline, Retrieval Diagnostics, and Update-Regime Implications for Contract Analysis}
+\author{Alberto Espinosa}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Graph Retrieval-Augmented Generation (GraphRAG) is widely proposed as a remedy for the limitations of flat similarity retrieval in Retrieval-Augmented Generation (RAG), especially for multi-hop queries. However, many GraphRAG implementations obscure the causal source of improvements by coupling graph construction, traversal policy, and prompting behind high-level frameworks. This paper presents a deliberately minimal and fully explicit GraphRAG baseline implemented from scratch for contract analysis. We formalize a chunk graph $G=(V,E)$ in embedding space, specify two edge families (sequential and semantic), define a weighted traversal scoring rule that trades off query relevance and path strength, and introduce retrieval-stage diagnostics (graph coverage and path coherence) that quantify graph expansion quality independently of generation. We report empirical statistics over a benchmark of clause-oriented and multi-hop contract queries, and we qualitatively audit traces captured with Langfuse. Finally, we study a practical systems question: should a GraphRAG graph be updated by incremental node insertion, or periodically rebuilt? Using basic complex-network diagnostics (average degree, clustering coefficient, and largest connected component fraction), we show that naive incremental insertion can measurably perturb global structure relative to full rebuilds. We interpret these findings via topology and information-integration considerations: while Integrated Information Theory (IIT) offers principled integration measures, exact computation is intractable at realistic graph sizes, motivating computable proxies and periodic re-optimization as safer engineering defaults.
+\end{abstract}
+
+\section{Introduction}
+Retrieval-Augmented Generation (RAG) combines a parametric language model with a non-parametric memory, typically a vector index queried by dense similarity, to improve factual grounding and updateability \citep{lewis2020rag}. Despite its success, flat retrieval often struggles with \emph{multi-hop} queries that require combining multiple, weakly related pieces of evidence (e.g., cross-clause risk interactions in contracts). GraphRAG addresses this by retrieving not only relevant text units, but also \emph{relationships} that structure the evidence into paths, neighborhoods, or communities \citep{peng2024graphrag_survey,han2024graphrag_survey}.
+
+This work is intentionally austere. We avoid high-level GraphRAG frameworks and graph analytics libraries, and we instead isolate a small set of algorithmic primitives: cosine similarity, thresholded edge construction, adjacency-list storage, traversal scoring, and relationship-aware prompting. The goal is a baseline in which the researcher can answer two questions with minimal confounding: (i) what changes when a graph is introduced into retrieval, and (ii) what new failure modes appear when a system transitions from ``retrieve top-$k$'' to ``retrieve a subgraph''.
+
+We additionally foreground a systems question that is often under-specified in GraphRAG descriptions: \emph{graph updates}. Many practical deployments ingest new documents continuously. If new chunks are inserted and connected via local similarity heuristics, global structure may drift, producing shortcut edges and hub effects that alter traversability and interpretability. While Integrated Information Theory (IIT) provides a principled formalism for assessing integration, exact computation is combinatorial in network size \citep{tononi2004iit,oizumi2014iit3}. We therefore treat IIT as a motivating conceptual lens rather than a directly computable metric, and we complement it with complex-network diagnostics \citep{newman2010networks} and an explicit incremental-insertion experiment.
+
+\section{Related Work}
+\subsection{Retrieval-Augmented Generation}
+RAG models combine parametric memory with retrieved documents, marginalizing over retrieved evidence during generation \citep{lewis2020rag}. Dense retrieval methods such as DPR enable scalable similarity search \citep{karpukhin2020dpr}. RAG has been surveyed extensively, including discussions of evaluation and the ``lost in the middle'' problem for long contexts \citep{peng2024graphrag_survey}.
+
+\subsection{GraphRAG}
+GraphRAG methods augment RAG by retrieving graph-structured elements such as nodes, paths, or subgraphs, capturing relational knowledge not reducible to semantic similarity alone \citep{peng2024graphrag_survey,han2024graphrag_survey}. While many systems build explicit knowledge graphs, practical GraphRAG variants can also treat text chunks as nodes with edges derived from sequence adjacency, citations, hyperlinks, or embedding similarity.
+
+\subsection{Query-focused graph summarization}
+Beyond survey work, recent systems emphasize query-focused graph summarization and ``local-to-global'' retrieval, in which graph communities provide coarse-to-fine access to evidence \citep{edge2024localglobal}. Our baseline does not implement community detection, but it explicitly exposes the retrieval subgraph and forces the generator to reference relations, enabling direct auditing and ablation.
+
+\subsection{Information Integration and Computational Constraints}
+Integrated Information Theory (IIT) proposes measures of integration based on irreducibility of a system's cause--effect structure, quantified by $\Phi$ (``big Phi'') and related quantities \citep{tononi2004iit,oizumi2014iit3}. Exact evaluation typically requires searching over partitions whose count grows super-exponentially with network size (e.g., Bell numbers), leading to severe computational barriers. Several authors propose alternative measures or approximations emphasizing computability \citep{tegmark2016iit}. Work on estimating integrated information using algorithmic complexity and dynamic querying further highlights both promise and practical limitations, often focusing on restricted network classes \citep{hernandez2021estimations}.
+
+\section{Methods}
+\subsection{Data and chunking}
+We consider a corpus of contract documents, chunked into overlapping spans and stored in a persistent vector database. Each chunk stores metadata including its source document and sequential neighbors, enabling sequential edges.
+
+\subsection{Embedding space and similarity}
+We embed each chunk into $\mathbb{R}^d$ using a sentence-transformer encoder. Given embeddings $v_i$ and $v_j$, cosine similarity is defined as:
+\begin{equation}
+\mathrm{sim}(i,j) = \frac{v_i \cdot v_j}{\lVert v_i\rVert \lVert v_j\rVert}.
+\end{equation}
+
+\subsection{Graph construction}
+We explicitly construct a graph $G=(V,E)$ where each node corresponds to a chunk:
+\begin{equation}
+V=\{(id_i,\; text_i,\; v_i,\; meta_i)\}_{i=1}^{N}.
+\end{equation}
+Edges include two families:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Sequential edges}: $i \leftrightarrow i{+}1$ within a source document, weight $w=1.0$.
+  \item \textbf{Semantic edges}: $i \leftrightarrow j$ if $\mathrm{sim}(i,j) > \tau$, with $\tau=0.75$.
+\end{enumerate}
+We store $G$ as an adjacency list to keep algorithmic behavior transparent.
+
+\subsection{Graph-guided retrieval}
+Retrieval proceeds in two stages:
+\paragraph{Seed retrieval.} We retrieve top-$k$ seed nodes from the vector index using the query embedding.
+\paragraph{Traversal expansion.} Starting from seeds, we expand the graph up to depth $D$ using a weight-prioritized traversal. Each candidate node $u$ is assigned a score:
+\begin{equation}
+\mathrm{score}(u) = \alpha \cdot \mathrm{sim}(q,u) + \beta \cdot W(u),
+\end{equation}
+where $W(u)$ is the cumulative edge weight along the best known path from any seed to $u$.
+In experiments, $\alpha=0.75$, $\beta=0.25$, $D=2$, and we cap the expanded node set.
+
+\subsection{Subgraph extraction and edge pruning}
+We induce a subgraph over expanded nodes and prune edges whose weight is below a threshold (default 0.60), yielding a compact, query-conditioned subgraph.
+
+\subsection{Generation with explicit relationships}
+Unlike flat RAG concatenation, GraphRAG supplies the generator with both node texts and an explicit relationship list (edges). The prompt requires the generator to reference relationships (e.g., ``Node A $\rightarrow$ Node B'') to support multi-hop reasoning.
+
+\begin{algorithm}[t]
+\caption{GraphRAG retrieval (simplified)}
+\KwIn{Query $q$, vector index, graph $G$, seed count $k$, depth $D$}
+\KwOut{Expanded node set $S$ and pruned edge set $E_S$}
+Seeds $\leftarrow$ TopK\_VectorSearch$(q,k)$\;
+$S \leftarrow$ Seeds\;
+\For{$d \leftarrow 1$ \KwTo $D$}{
+  Expand candidates by following adjacency edges from $S$\;
+  Score each candidate using $\alpha \cdot \mathrm{sim}(q,u) + \beta \cdot W(u)$\;
+  Add highest scoring candidates into $S$ (bounded)\;
+}
+Induce subgraph on $S$ and prune edges with $w < \theta$\;
+\Return{$S, E_S$}\;
+\end{algorithm}
+
+\section{Experimental Protocol}
+\subsection{Systems compared}
+We compare three pipelines over the same contract corpus:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{RAG}: top-$k$ vector retrieval followed by a single synthesis call.
+  \item \textbf{RAU}: retrieval followed by similarity-based clustering and hierarchical synthesis (cluster summaries then global synthesis).
+  \item \textbf{GraphRAG}: seed retrieval, graph traversal expansion, subgraph extraction, and relationship-aware prompting.
+\end{enumerate}
+
+\subsection{Query set}
+We evaluate $25$ contract queries spanning (i) standard clause probes and (ii) multi-hop risk interactions (e.g., termination and liability). The full query list is reproduced in Appendix~\ref{app:queries}. For generation-stage metrics that require LLM-as-a-judge, we report results on a representative subset of $7$ multi-hop and high-risk queries to manage cost and runtime while preserving interpretability.
+
+\subsection{Metrics}
+We report retrieval-oriented diagnostics for GraphRAG:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{graph\_coverage}: overlap between expanded nodes and a proxy ``relevant set'' defined as the top-$K$ vector hits (a measurable approximation in absence of labeled ground truth).
+  \item \textbf{path\_coherence}: mean edge weight over traversal steps used during expansion.
+  \item \textbf{subgraph size}: node and edge counts after pruning.
+  \item \textbf{latency}: retrieval-stage timing (seed search vs graph expansion).
+\end{itemize}
+For generation-stage comparison (subset of queries), we additionally report:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{faithfulness}: an LLM-as-a-judge score in $[1,10]$ evaluating whether the answer is grounded in retrieved text.
+  \item \textbf{information density}: preserved extracted entities per 100 generated tokens.
+\end{itemize}
+
+\section{Results}
+\subsection{Summary statistics}
+Table~\ref{tab:summary} reports aggregate statistics over the benchmark.
+
+\begin{table}[h]
+\centering
+\caption{GraphRAG retrieval diagnostics over 25 queries.}
+\label{tab:summary}
+\input{tables/metrics_summary.tex}
+\end{table}
+
+\subsection{Distributional behavior}
+Figure~\ref{fig:dists} summarizes the distributions of coverage, coherence, and latency components.
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/coverage_boxplot.png}{\textwidth}
+  \caption{Coverage}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/coherence_boxplot.png}{\textwidth}
+  \caption{Coherence}
+\end{subfigure}
+
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/seed_latency_boxplot.png}{\textwidth}
+  \caption{Seed latency}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/traversal_latency_boxplot.png}{\textwidth}
+  \caption{Traversal latency}
+\end{subfigure}
+\caption{GraphRAG retrieval diagnostics over 25 queries.}
+\label{fig:dists}
+\end{figure}
+
+\subsection{Subgraph size}
+Figure~\ref{fig:size} illustrates the relationship between expanded node and edge counts.
+\begin{figure}[h]
+\centering
+\includeorplaceholder{images/nodes_edges_scatter.png}{0.70\textwidth}
+\caption{Expanded subgraph size (nodes vs edges).}
+\label{fig:size}
+\end{figure}
+
+\subsection{Generation-stage metrics (subset)}
+Table~\ref{tab:systems} reports mean and standard deviation for generation-stage metrics over the $7$-query subset. Figure~\ref{fig:systems} visualizes per-system distributions.
+
+\begin{table}[h]
+\centering
+\caption{Generation-stage metrics over the 7-query subset.}
+\label{tab:systems}
+\input{tables/systems_summary.tex}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/latency_by_system_boxplot.png}{\textwidth}
+  \caption{Latency}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/faithfulness_by_system_boxplot.png}{\textwidth}
+  \caption{Faithfulness}
+\end{subfigure}
+
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/density_by_system_boxplot.png}{\textwidth}
+  \caption{Information density}
+\end{subfigure}
+\caption{Generation-stage metric distributions over the 7-query subset.}
+\label{fig:systems}
+\end{figure}
+
+\section{Langfuse Trace Interpretation (Qualitative Auditing)}
+To support reproducibility and trace-based auditing, we log each pipeline run with Langfuse. In the intended setup, each path (RAG, RAU, GraphRAG) yields a trace capturing:
+\begin{itemize}[leftmargin=*]
+  \item the prompt payload (including graph relationships for GraphRAG),
+  \item intermediate summarizations (cluster summaries for RAU),
+  \item latency measurements, and
+  \item reported scores (when enabled).
+\end{itemize}
+
+Qualitative inspection focuses on failure modes that are hard to detect from scalar scores alone:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Context overflow}: GraphRAG prompts can exceed local model context budgets, requiring strict prompt budgeting (node count, node length, edge count).
+  \item \textbf{Prompt echoing}: some models echo the provided graph context rather than performing synthesis; we detect this and fall back to a compact graph summary.
+  \item \textbf{Graph shortcutting}: excessive semantic edges can create spurious short paths that connect unrelated clauses, inflating apparent coherence.
+\end{enumerate}
+
+Figures~\ref{fig:langfuse} are placeholders for screenshots to be supplied from \texttt{doc/paper/images/}:
+\begin{figure}[h]
+\centering
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/langfuse_graphrag_trace.png}{\textwidth}
+  \caption{GraphRAG trace}
+\end{subfigure}
+\begin{subfigure}{0.49\textwidth}
+  \centering
+  \includeorplaceholder{images/langfuse_rau_trace.png}{\textwidth}
+  \caption{RAU trace}
+\end{subfigure}
+\caption{Langfuse trace screenshots (to be provided).}
+\label{fig:langfuse}
+\end{figure}
+
+\section{Discussion}
+\subsection{What the graph adds (and what it does not)}
+The graph introduces an explicit inductive bias: evidence is no longer treated as an unordered set of chunks but as a structured neighborhood with weighted edges. This facilitates multi-hop retrieval because traversal can surface nodes that are not top-$k$ by similarity alone, but become relevant via strong relational ties.
+
+However, this also introduces new degrees of freedom: threshold $\tau$, traversal depth $D$, pruning $\theta$, and the weighting hyperparameters $(\alpha,\beta)$. Each can induce failure modes such as hub-node overload, semantic ``short-circuiting'' through spurious similarity edges, or over-pruning.
+
+\subsection{Trends in GraphRAG node addition}
+Modern GraphRAG deployments often require continuous ingestion. Common strategies include:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Incremental insertion}: embed new chunks and connect via local heuristics (similarity, metadata, entity links).
+  \item \textbf{Periodic re-indexing}: rebuild embeddings and graph structure in batches.
+  \item \textbf{Hybrid approaches}: insert incrementally but periodically re-optimize communities/edges.
+\end{enumerate}
+Surveys emphasize that graph construction is configurable and domain-dependent, spanning knowledge graphs, text-chunk graphs, and hybrid graphs \citep{peng2024graphrag_survey,han2024graphrag_survey}.
+
+\subsection{Update regimes: incremental insertion vs rebuild}
+We operationalize ``graph integrity'' using computable network diagnostics. Starting from an initial graph built on $80\%$ of chunks, we compare:
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Incremental insertion}: add the remaining $20\%$ of nodes, connecting each node by local similarity and sequential metadata.
+  \item \textbf{Rebuild full}: reconstruct the full graph from scratch on all nodes.
+\end{enumerate}
+Table~\ref{tab:update} reports average degree, clustering coefficient, largest connected component fraction (LCC), and edge-set Jaccard similarity to the full rebuild baseline.
+
+\begin{table}[h]
+\centering
+\caption{Incremental insertion vs rebuild (graph-level diagnostics).}
+\label{tab:update}
+\input{tables/update_experiment.tex}
+\end{table}
+
+\subsection{A complexity-science argument via topology and information integration}
+The intuition behind ``information integration'' is that useful reasoning arises not from isolated facts but from their structured interdependence. IIT formalizes this via measures of irreducibility and integrated information $\Phi$ \citep{tononi2004iit,oizumi2014iit3}. Yet exact evaluation becomes intractable for large systems due to the number of partitions; computable relaxations have been proposed \citep{tegmark2016iit}. Estimation methods based on algorithmic complexity and dynamic querying illustrate possible approximations, often focusing on restricted (e.g., binary) settings \citep{hernandez2021estimations}.
+
+For GraphRAG, the engineering-relevant question is not whether a graph is ``integrated'' in the IIT sense, but whether incremental updates preserve the navigation properties that make graph-guided retrieval effective: coherent neighborhoods, stable communities, and interpretable paths. From complex network theory, node insertion can shift degree distributions, clustering coefficients, and path-length properties in ways that change global navigability \citep{newman2010networks,watts1998smallworld,barabasi1999scale}. From a topology-inspired view, adding edges changes the clique complex induced by a similarity graph, potentially altering connectivity and higher-order structure; this matters because multi-hop retrieval often exploits the existence of short paths through semantically dense regions. These considerations support a conservative systems policy: when update volume is non-trivial, periodic rebuild or re-optimization can be more reliable than purely local insertion, unless stronger constraints or calibration are enforced.
+
+For GraphRAG, the central question becomes: does incremental node insertion preserve (or improve) the graph's integrative structure, or does it accumulate local edges that degrade global coherence? Complex network theory suggests that adding nodes can shift degree distributions, clustering coefficients, and path length properties in ways that change global navigability \citep{newman2010networks,watts1998smallworld,barabasi1999scale}. From this perspective, periodic re-construction (or re-optimization) may be more reliable than purely local updates when global properties matter for retrieval and reasoning. This is not a final conclusion, but a hypothesis that can be tested using a combination of retrieval diagnostics (coverage/coherence) and graph-theoretic measurements.
+
+\section{Limitations and future work}
+This baseline intentionally excludes higher-order graph learning (e.g., GNN encoders) and focuses on explicit traversal. Future work should evaluate:
+(i) labeled relevance sets, (ii) ablations over $\tau,D,\theta,\alpha,\beta$, (iii) dynamic graph update regimes, and (iv) principled integration proxies that remain computable at scale.
+
+\section{Conclusion}
+We presented a minimal, explicit GraphRAG baseline whose behavior can be inspected end-to-end: chunk graph construction, weighted traversal, subgraph extraction, and relationship-aware generation. Empirical results show stable retrieval-stage diagnostics over a batch of contract queries. Finally, we argued that ``adding nodes'' is not a neutral operation: it may alter a graph's integrative structure, motivating a complexity-science lens (including IIT-inspired considerations) for evaluating update strategies.
+
+\appendix
+\section{Benchmark queries}\label{app:queries}
+The benchmark query list is defined in the evaluation script used to generate \texttt{results\_metrics.csv}. For convenience, the 25 queries are reproduced here:
+\begin{enumerate}[leftmargin=*]
+  \item Identify risks involving both termination and liability clauses
+  \item What obligations survive termination and how do they interact with limitation of liability
+  \item Find conflicts between indemnification and limitation of liability
+  \item Identify risks where confidentiality obligations collide with disclosure or audit rights
+  \item Assess whether termination triggers payment obligations or refund obligations
+  \item Summarize termination for convenience and termination for cause
+  \item Summarize limitation of liability and excluded damages
+  \item Summarize indemnity and defense obligations
+  \item Summarize confidentiality scope, exclusions, and duration
+  \item Summarize governing law and venue
+  \item Summarize assignment restrictions and change of control
+  \item Summarize force majeure conditions and notice requirements
+  \item Summarize warranty disclaimers and remedy limitations
+  \item Summarize payment terms and late payment penalties
+  \item Summarize dispute resolution, arbitration, and escalation steps
+  \item Summarize IP ownership and license grants
+  \item Summarize audit rights and record retention requirements
+  \item Summarize non-solicitation and non-compete restrictions
+  \item Summarize data security obligations and breach notification requirements
+  \item Summarize insurance requirements and proof of coverage
+  \item Identify clauses that could create unlimited liability exposure
+  \item Identify clauses that could allow unilateral changes to pricing or scope
+  \item Identify clauses that shift regulatory compliance risk to one party
+  \item Identify clauses that create unclear acceptance criteria or deliverables
+  \item Identify clauses that create broad termination rights with short notice
+\end{enumerate}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,109 @@
+\begin{thebibliography}{12}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Barab{\'a}si and Albert(1999)]{barabasi1999scale}
+Albert-L{\'a}szl{\'o} Barab{\'a}si and R{\'e}ka Albert.
+\newblock Emergence of scaling in random networks.
+\newblock \emph{Science}, 286\penalty0 (5439):\penalty0 509--512, 1999.
+\newblock \doi{10.1126/science.286.5439.509}.
+\newblock URL \url{https://doi.org/10.1126/science.286.5439.509}.
+
+\bibitem[Edge et~al.(2024)Edge, Trinh, Cheng, Bradley, Chao, Mody, Truitt,
+  Metropolitansky, Ness, and Larson]{edge2024localglobal}
+Darren Edge, Ha~Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva Mody,
+  Steven Truitt, Dasha Metropolitansky, Robert~Osazuwa Ness, and Jonathan
+  Larson.
+\newblock From local to global: A graph {RAG} approach to query-focused
+  summarization.
+\newblock \emph{arXiv preprint arXiv:2404.16130}, 2024.
+\newblock \doi{10.48550/arXiv.2404.16130}.
+\newblock URL \url{https://arxiv.org/abs/2404.16130}.
+
+\bibitem[Han et~al.(2025)Han, Wang, Shomer, Guo, Ding, Lei, Halappanavar,
+  Rossi, Mukherjee, Tang, He, Hua, Long, Zhao, Shah, Javari, Xia, and
+  Tang]{han2024graphrag_survey}
+Haoyu Han, Yu~Wang, Harry Shomer, Kai Guo, Jiayuan Ding, Yongjia Lei, Mahantesh
+  Halappanavar, Ryan~A. Rossi, Subhabrata Mukherjee, Xianfeng Tang, Qi~He,
+  Zhigang Hua, Bo~Long, Tong Zhao, Neil Shah, Amin Javari, Yinglong Xia, and
+  Jiliang Tang.
+\newblock Retrieval-augmented generation with graphs (graphrag).
+\newblock \emph{arXiv preprint arXiv:2501.00309}, 2025.
+\newblock \doi{10.48550/arXiv.2501.00309}.
+\newblock URL \url{https://arxiv.org/abs/2501.00309}.
+
+\bibitem[Hern{\'a}ndez{-}Espinosa et~al.(2021)Hern{\'a}ndez{-}Espinosa, Kiani,
+  and Zenil]{hernandez2021estimations}
+Alberto Hern{\'a}ndez{-}Espinosa, Narsis~A. Kiani, and Hector Zenil.
+\newblock Estimations of integrated information based on algorithmic complexity
+  and dynamic querying.
+\newblock In \emph{Complexity and Data Analysis}. World Scientific, 2021.
+\newblock \doi{10.1142/9789811235726_0005}.
+\newblock URL
+  \url{https://www.worldscientific.com/doi/10.1142/9789811235726_0005}.
+
+\bibitem[Karpukhin et~al.(2020)Karpukhin, Oguz, Min, Wu, Edunov, Chen, and
+  Yih]{karpukhin2020dpr}
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Ledell Wu, Sergey Edunov, Danqi
+  Chen, and Wen{-}tau Yih.
+\newblock Dense passage retrieval for open-domain question answering.
+\newblock \emph{arXiv preprint arXiv:2004.04906}, 2020.
+\newblock URL \url{https://arxiv.org/abs/2004.04906}.
+
+\bibitem[Lewis et~al.(2020)Lewis, Perez, Piktus, Petroni, Karpukhin, Goyal,
+  K{\"u}ttler, Lewis, Yih, Rockt{\"a}schel, Riedel, and Kiela]{lewis2020rag}
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir
+  Karpukhin, Naman Goyal, Heinrich K{\"u}ttler, Mike Lewis, Wen{-}tau Yih, Tim
+  Rockt{\"a}schel, Sebastian Riedel, and Douwe Kiela.
+\newblock Retrieval-augmented generation for knowledge-intensive {NLP} tasks.
+\newblock \emph{arXiv preprint arXiv:2005.11401}, 2020.
+\newblock URL \url{https://arxiv.org/abs/2005.11401}.
+
+\bibitem[Newman(2010)]{newman2010networks}
+Mark Newman.
+\newblock \emph{Networks: An Introduction}.
+\newblock Oxford University Press, 2010.
+
+\bibitem[Oizumi et~al.(2014)Oizumi, Albantakis, and Tononi]{oizumi2014iit3}
+Masafumi Oizumi, Larissa Albantakis, and Giulio Tononi.
+\newblock From the phenomenology to the mechanisms of consciousness: Integrated
+  information theory 3.0.
+\newblock \emph{PLoS Computational Biology}, 10\penalty0 (5):\penalty0
+  e1003588, 2014.
+\newblock \doi{10.1371/journal.pcbi.1003588}.
+\newblock URL \url{https://doi.org/10.1371/journal.pcbi.1003588}.
+
+\bibitem[Peng et~al.(2024)Peng, Zhu, Liu, Bo, Shi, Hong, Zhang, and
+  Tang]{peng2024graphrag_survey}
+Boci Peng, Yun Zhu, Yongchao Liu, Xiaohe Bo, Haizhou Shi, Chuntao Hong, Yan
+  Zhang, and Siliang Tang.
+\newblock Graph retrieval-augmented generation: A survey.
+\newblock \emph{arXiv preprint arXiv:2408.08921}, 2024.
+\newblock URL \url{https://arxiv.org/abs/2408.08921}.
+
+\bibitem[Tegmark(2016)]{tegmark2016iit}
+Max Tegmark.
+\newblock Improved measures of integrated information.
+\newblock \emph{PLoS Computational Biology}, 12\penalty0 (11):\penalty0
+  e1005123, 2016.
+\newblock \doi{10.1371/journal.pcbi.1005123}.
+\newblock URL \url{https://doi.org/10.1371/journal.pcbi.1005123}.
+
+\bibitem[Tononi(2004)]{tononi2004iit}
+Giulio Tononi.
+\newblock An information integration theory of consciousness.
+\newblock \emph{BMC Neuroscience}, 5:\penalty0 42, 2004.
+\newblock \doi{10.1186/1471-2202-5-42}.
+\newblock URL \url{https://doi.org/10.1186/1471-2202-5-42}.
+
+\bibitem[Watts and Strogatz(1998)]{watts1998smallworld}
+Duncan~J. Watts and Steven~H. Strogatz.
+\newblock Collective dynamics of `small-world' networks.
+\newblock \emph{Nature}, 393:\penalty0 440--442, 1998.
+\newblock \doi{10.1038/30918}.
+\newblock URL \url{https://doi.org/10.1038/30918}.
+
+\end{thebibliography}

@@ -312,7 +312,7 @@ class DualPipeline:
         nodes = retrieval["nodes"]
         edges = retrieval["edges"]
 
-        prompt_nodes = nodes[:18]
+        prompt_nodes = nodes[:10]
         prompt_node_ids = {n["id"] for n in prompt_nodes}
         prompt_edges = [e for e in edges if e["source"] in prompt_node_ids and e["target"] in prompt_node_ids]
 
@@ -324,11 +324,11 @@ class DualPipeline:
             src = md.get("source", "unknown_source")
             idx = md.get("chunk_index", "NA")
             node_lines.append(
-                f"[{label_map[n['id']]}] source={src} chunk_index={idx}\n{_clip_text(n['text'], 900)}"
+                f"[{label_map[n['id']]}] source={src} chunk_index={idx}\n{_clip_text(n['text'], 500)}"
             )
 
         edge_lines: List[str] = []
-        for e in sorted(prompt_edges, key=lambda x: x["weight"], reverse=True)[:60]:
+        for e in sorted(prompt_edges, key=lambda x: x["weight"], reverse=True)[:40]:
             src_lbl = label_map.get(e["source"], e["source"])
             dst_lbl = label_map.get(e["target"], e["target"])
             edge_lines.append(
