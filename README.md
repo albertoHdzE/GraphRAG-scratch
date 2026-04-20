@@ -1,5 +1,21 @@
 # GraphRAG From Scratch (Scientific Baseline)
 
+## Thesis and research direction
+
+This project is motivated by a concrete scientific concern: RAG systems are often evaluated primarily by the plausibility of their final answers, even though the final step is an LLM whose objective is to produce coherent language. A sufficiently capable model can frequently produce a coherent narrative that blends retrieved fragments into an answer-shaped statement, even when the retrieved evidence is incomplete, weakly connected, or partially irrelevant. Coherence is therefore not a reliable proxy for correctness.
+
+From a complexity science and information-theoretic perspective, this raises operational questions that remain open in many RAG deployments:
+
+- Evidence veracity: are the retrieved chunks true and correctly attributed to the underlying corpus, or are they artifacts of embedding similarity and chunking choices
+- Structural validity: for GraphRAG, is the induced subgraph a faithful representation of the relevant causal or logical dependencies, or merely a convenient neighborhood in embedding space
+- Completeness and coverage: is the graph and its edge policy sufficient to make the relevant pathways reachable, or does it systematically miss long-range dependencies and rare but high-impact clauses
+- Stability under updates: when new chunks are added, do local insertion heuristics preserve global structure, or do they introduce shortcut edges and hub effects that change navigability and interpretability
+- Alternatives and efficiency: are there faster or more robust ways to organize evidence than incremental graph growth, including periodic rebuilds or re-optimization of structure
+
+The guiding thesis is not that RAG is invalid, but that the scientific object being evaluated is a coupled dynamical system: a retrieval policy over a representation (vector store and graph) plus a generator that can amplify weak signals into fluent conclusions. The correct evaluation target is therefore the evidence-selection process and its induced structure, not merely the final text.
+
+We use natural systems as an analogy for what a rigorous objective could look like. In biology, informational success is not just local correctness but system-level integration: information is encoded, error-corrected, and redundantly distributed such that the organism remains functional under perturbations. DNA is both a compact code and a mechanism-compatible substrate; replication and repair enforce constraints that preserve identity over time. By contrast, many RAG pipelines rely on unconstrained text coherence at the final step and only weak structural constraints upstream. This motivates explicit diagnostics and ablations that quantify when a retrieval structure is integrated enough to support reliable reasoning, and when rebuilding or re-indexing is a safer default than incremental updates.
+
 ## Abstract
 
 This repository provides a clean, minimal, and mathematically explicit implementation of classic RAG, clustering-based retrieval-augmented understanding (RAU), and **GraphRAG**. 
