@@ -43,6 +43,71 @@ Here, each piece is implemented and exposed explicitly. This separation makes it
 - **`ui/dashboard.py`** — Streamlit dashboard to compare all three approaches side-by-side
 - **`launch_app.sh`** — Convenience launcher
 
+## Benchmark data and storage
+
+This repository uses two storage layers for the benchmark:
+
+- Corpus (contracts): a small plaintext sample under `data_engine/contracts/` used as a lightweight benchmark for end-to-end runs.
+- Vector database: ChromaDB persistence under `data_engine/storage/chroma_db/` created by ingesting the corpus and storing embeddings plus metadata.
+
+The contracts are representative of the style used in the Contract Understanding Atticus Dataset (CUAD) corpus of SEC-sourced commercial agreements. CUAD v1 is a widely used academic benchmark for contract analysis.
+
+- Dataset landing page: https://www.atticusprojectai.org/cuad
+- Dataset code and instructions: https://github.com/TheAtticusProject/cuad
+
+If you want to scale experiments beyond the small included sample, download CUAD and replace or extend `data_engine/contracts/`, then re-run ingestion to rebuild the vector store.
+
+## TODO roadmap: databases and deployment (local and GCP)
+
+### Storage backends
+
+Vector indexes (this repo currently uses ChromaDB):
+
+- [ ] PostgreSQL + pgvector (local, Cloud SQL, AlloyDB)
+- [ ] Qdrant (local, managed options)
+- [ ] Milvus (local, managed options)
+- [ ] Weaviate (local, managed options)
+- [ ] Elasticsearch or OpenSearch vector search (local, managed)
+- [ ] Pinecone (managed)
+- [ ] Vertex AI Vector Search (GCP)
+- [ ] BigQuery vector search (GCP, analytics-first workloads)
+- [ ] FAISS (local, single-node baseline for controlled experiments)
+
+Graph stores (this repo currently uses an in-memory adjacency list in Python for maximal transparency):
+
+- [ ] Neo4j (local, Aura, GCP deployment)
+- [ ] Memgraph (local, GCP deployment)
+- [ ] ArangoDB (graph plus document, local and managed)
+- [ ] JanusGraph (for large graphs with external storage backends)
+- [ ] TigerGraph (enterprise graph database)
+
+### Hallucination and reliability strategies
+
+Evidence and attribution:
+
+- [ ] Enforce citations: require answer claims to quote short spans and reference node IDs and sources
+- [ ] Abstention policy: return "insufficient evidence" when retrieval confidence is low
+- [ ] Multi-retriever checks: compare vector-only vs graph-expanded evidence; flag contradictions
+
+Prompt and context controls:
+
+- [ ] Strict prompt budgeting for GraphRAG (node count, node length, edge count) to prevent context overflow
+- [ ] Anti-echo detection and fallback summarization when models repeat the prompt context
+- [ ] Query decomposition for multi-hop questions (sub-queries, then merge with explicit provenance)
+
+Verification and evaluation:
+
+- [ ] LLM-as-a-judge plus lightweight rule checks (numbers, dates, party names) against retrieved text
+- [ ] Regression suite of "needle-in-haystack" and multi-hop queries with stored expected evidence
+- [ ] Trace auditing with Langfuse: log retrieval sets, prompts, and scored diagnostics for every run
+
+### Cross-platform parity (local and GCP)
+
+- [ ] Configuration parity: same pipeline parameters via environment variables and config files
+- [ ] Reproducible builds: Docker or equivalent, pinned dependencies, deterministic benchmark scripts
+- [ ] Data lifecycle: separate raw corpora, derived chunks, embeddings, and graph artifacts by version
+- [ ] Observability parity: structured logs, traces, and metrics (latency, coverage, coherence) in both environments
+
 ## System Overview
 
 All approaches share the same embedding space and vector store:
